@@ -15,11 +15,11 @@
     } \
 }
 
-// 步骤3（底部）：CUDA核函数定义
+// 步骤3（底部）：CUDA核函数定义（单次启动版：每个线程处理一个元素，if 守卫防越界）
 template<typename T>
-__global__ void add_kernel(T *c, const T *a, const T *b, int n, size_t step) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    
+__global__ void add_kernel(T *c, const T *a, const T *b, size_t n) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
     if (idx < n) {
         c[idx] = a[idx] + b[idx];
     }
@@ -48,11 +48,8 @@ int main() {
     dim3 block_dim(256);
     dim3 grid_dim((SIZE + block_dim.x - 1) / block_dim.x);
 
-    // 当线程数少于数组长度使用的，循环步长，步长等于当前总线程数。
-    size_t step = block_dim.x * grid_dim.x
-
-    //add_kernel<<<grid_dim, block_dim>>>(d_c, d_a, d_b, SIZE);
-    add_kernel<<<1, 1>>>(d_c, d_a, d_b, SIZE, step);
+    // 单次启动：网格总线程数 >= SIZE，每个线程处理一个元素
+    add_kernel<<<grid_dim, block_dim>>>(d_c, d_a, d_b, SIZE);
 
     // 强烈建议加上这行以捕获核函数启动时的潜在错误
     CUDA_CHECK(cudaGetLastError());
