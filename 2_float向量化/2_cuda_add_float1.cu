@@ -4,17 +4,8 @@
 #include <type_traits>
 #include <cuda_runtime.h>
 
-// 步骤5（底部）：错误检查宏定义
-#define CUDA_CHECK(call) \
-{ \
-    cudaError_t err = call; \
-    if (err != cudaSuccess) \
-    { \
-        std::cerr << "CUDA error at " << __FILE__ << ":" << __LINE__ \
-                  << " - " << cudaGetErrorString(err) << "\n"; \
-        exit(1); \
-    } \
-}
+// 步骤5（底部）：错误检查宏 + 运行概要工具（见 common/cuda_bench.cuh）
+#include "../common/cuda_bench.cuh"
 
 // 图2：__device__ 模板 add() —— 统一封装不同类型加法（仅在 GPU 上运行）
 // float1 即标量 float：4 字节、4 字节对齐，无向量化包装
@@ -70,17 +61,35 @@ int main() {
     dim3 block_dim(256);
     dim3 grid_dim((SIZE + block_dim.x - 1) / block_dim.x);
 
-    vector_add(d_c, d_a, d_b, SIZE, grid_dim, block_dim);
-
-    // 强烈建议加上这行以捕获核函数启动时的潜在错误
+    // 预热 2 次 + 计时 100 次，得到平均 kernel 耗时
+    const int WARMUP_ITERS = 2;
+    const int PROFILE_ITERS = 100;
+    double avg_ms = cudabench::profile(WARMUP_ITERS, PROFILE_ITERS, [&] {
+        vector_add(d_c, d_a, d_b, SIZE, grid_dim, block_dim);
+    });
     CUDA_CHECK(cudaGetLastError());
 
     // 步骤4：将结果拷贝回主机
     CUDA_CHECK(cudaMemcpy(h_c.data(), d_c, size_bytes, cudaMemcpyDeviceToHost));
 
-    // 验证结果
-    std::cout << "计算结果验证 (a[0]+b[0]): " << h_c[0] << " (预期: 3)" << std::endl;
-    std::cout << "计算结果验证 (a[last]+b[last]): " << h_c[SIZE-1] << " (预期: 3)" << std::endl;
+    // 全量验证：每个元素都应为 3
+    const float expected_value = 3.0f;
+    bool verified = cudabench::verify_all(h_c, [](float v) { return v == 3.0f; });
+
+    // 打印运行概要
+    cudabench::Report report;
+    report.vector_size   = SIZE;
+    report.data_type     = "float";
+    report.element_size  = sizeof(float);
+    report.block_threads = block_dim.x;
+    report.grid_blocks   = grid_dim.x;
+    report.warmup_iters  = WARMUP_ITERS;
+    report.profile_iters = PROFILE_ITERS;
+    report.avg_ms        = avg_ms;
+    report.verified      = verified;
+    report.expected      = expected_value;
+    report.got           = h_c[0];
+    report.print();
 
     // 步骤5：释放显存
     if (d_a) CUDA_CHECK(cudaFree(d_a));
