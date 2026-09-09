@@ -40,12 +40,15 @@ void vector_add(T *c, const T *a, const T *b, size_t n, const dim3 &grid, const 
 
 int main() {
     // 步骤1：定义大小、初始化主机数据、分配设备显存
-    const size_t SIZE = 1 << 20;                  // 1M 个 float 元素（每个 4 字节，数据量 4MB）
-    size_t size_bytes = SIZE * sizeof(float);
+    // N = 总 float 数；float1/2/4 统一用 1<<20 个 float，每个数组都是 4 MiB
+    const size_t N = 1 << 20;
+    const size_t VEC = 1;                          // 向量宽度：float1
+    const size_t ELEMS = N / VEC;                  // 向量元素个数
+    size_t size_bytes = ELEMS * sizeof(float);
 
-    std::vector<float> h_a(SIZE, 1);
-    std::vector<float> h_b(SIZE, 2);
-    std::vector<float> h_c(SIZE, 0);
+    std::vector<float> h_a(ELEMS, 1);
+    std::vector<float> h_b(ELEMS, 2);
+    std::vector<float> h_c(ELEMS, 0);
 
     float *d_a, *d_b, *d_c;
     CUDA_CHECK(cudaMalloc(&d_a, size_bytes));
@@ -59,13 +62,13 @@ int main() {
 
     // 步骤3：配置核函数并调用
     dim3 block_dim(256);
-    dim3 grid_dim((SIZE + block_dim.x - 1) / block_dim.x);
+    dim3 grid_dim((ELEMS + block_dim.x - 1) / block_dim.x);
 
     // 预热 2 次 + 计时 100 次，得到平均 kernel 耗时
     const int WARMUP_ITERS = 2;
     const int PROFILE_ITERS = 100;
     double avg_ms = cudabench::profile(WARMUP_ITERS, PROFILE_ITERS, [&] {
-        vector_add(d_c, d_a, d_b, SIZE, grid_dim, block_dim);
+        vector_add(d_c, d_a, d_b, ELEMS, grid_dim, block_dim);
     });
     CUDA_CHECK(cudaGetLastError());
 
@@ -78,7 +81,8 @@ int main() {
 
     // 打印运行概要
     cudabench::Report report;
-    report.vector_size   = SIZE;
+    report.vector_size   = ELEMS;
+    report.total_floats  = ELEMS * VEC;
     report.data_type     = "float";
     report.element_size  = sizeof(float);
     report.block_threads = block_dim.x;

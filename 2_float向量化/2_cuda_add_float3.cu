@@ -40,12 +40,15 @@ void vector_add(T *c, const T *a, const T *b, size_t n, const dim3 &grid, const 
 
 int main() {
     // 步骤1：定义大小、初始化主机数据、分配设备显存
-    const size_t SIZE = 1 << 20;                  // 1M 个 float3 元素（每个 12 字节，数据量 12MB）
-    size_t size_bytes = SIZE * sizeof(float3);
+    // N = 总 float 数；1<<20 除不尽 3，float3 实际处理 ELEMS*3 = 1048575 个 float
+    const size_t N = 1 << 20;
+    const size_t VEC = 3;                          // 向量宽度：float3（反例）
+    const size_t ELEMS = N / VEC;                  // 向量元素个数 = 349525
+    size_t size_bytes = ELEMS * sizeof(float3);
 
-    std::vector<float3> h_a(SIZE, make_float3(1, 1, 1));
-    std::vector<float3> h_b(SIZE, make_float3(2, 2, 2));
-    std::vector<float3> h_c(SIZE, make_float3(0, 0, 0));
+    std::vector<float3> h_a(ELEMS, make_float3(1, 1, 1));
+    std::vector<float3> h_b(ELEMS, make_float3(2, 2, 2));
+    std::vector<float3> h_c(ELEMS, make_float3(0, 0, 0));
 
     float3 *d_a, *d_b, *d_c;
     CUDA_CHECK(cudaMalloc(&d_a, size_bytes));
@@ -59,13 +62,13 @@ int main() {
 
     // 步骤3：配置核函数并调用
     dim3 block_dim(256);
-    dim3 grid_dim((SIZE + block_dim.x - 1) / block_dim.x);
+    dim3 grid_dim((ELEMS + block_dim.x - 1) / block_dim.x);
 
     // 预热 2 次 + 计时 100 次，得到平均 kernel 耗时
     const int WARMUP_ITERS = 2;
     const int PROFILE_ITERS = 100;
     double avg_ms = cudabench::profile(WARMUP_ITERS, PROFILE_ITERS, [&] {
-        vector_add(d_c, d_a, d_b, SIZE, grid_dim, block_dim);
+        vector_add(d_c, d_a, d_b, ELEMS, grid_dim, block_dim);
     });
     CUDA_CHECK(cudaGetLastError());
 
@@ -80,7 +83,8 @@ int main() {
 
     // 打印运行概要
     cudabench::Report report;
-    report.vector_size   = SIZE;
+    report.vector_size   = ELEMS;
+    report.total_floats  = ELEMS * VEC;
     report.data_type     = "float3";
     report.element_size  = sizeof(float3);
     report.block_threads = block_dim.x;

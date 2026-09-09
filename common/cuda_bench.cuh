@@ -61,7 +61,8 @@ bool verify_all(const std::vector<T>& host, CheckFn check) {
 }
 
 struct Report {
-    std::size_t vector_size   = 0;          // 元素个数
+    std::size_t vector_size   = 0;          // 向量元素个数（显示用）
+    std::size_t total_floats  = 0;          // float 总数（算 FLOPs；0 表示回退到 vector_size）
     const char* data_type     = "unknown";
     std::size_t element_size  = 0;          // 每个元素的字节数 sizeof(T)
     unsigned    block_threads = 0;
@@ -84,8 +85,8 @@ struct Report {
     }
 
     double compute_gflops() const {
-        // 每个元素 1 次浮点加法
-        double flops = static_cast<double>(vector_size);
+        // 每个 float 1 次浮点加法
+        double flops = static_cast<double>(total_floats > 0 ? total_floats : vector_size);
         return avg_ms > 0.0 ? flops / (avg_ms * 1.0e6) : 0.0;
     }
 
